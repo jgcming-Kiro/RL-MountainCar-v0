@@ -1,4 +1,4 @@
-![CI](https://github.com/emiliomunozai/mountain_car/actions/workflows/ci.yml/badge.svg?branch=main)
+![CI](https://github.com/jgcming-Kiro/RL-MountainCar-v0/actions/workflows/ci.yml/badge.svg?branch=main)
 
 A hands-on repo for understanding how Reinforcement Learning works.
 Train, inspect, and visualise RL agents on [MountainCar-v0](https://gymnasium.farama.org/environments/classic_control/mountain_car/) (or any other Gymnasium environment).
@@ -6,6 +6,9 @@ Train, inspect, and visualise RL agents on [MountainCar-v0](https://gymnasium.fa
 **This repo is a set of exercises.** The CLI, training loops and persistence are
 written; the algorithms themselves are left as marked `EXERCISE` stubs for you
 to fill in. Start with **[EXERCISES.md](EXERCISES.md)**.
+
+The exercise implementations in this copy are complete. Training evidence and
+the comparison between both agents are available in [RESULTADOS.md](RESULTADOS.md).
 
 ## MountainCar-v0 environment
 
@@ -87,6 +90,15 @@ uv run mountaincar load qlearning --eval
 # Watch it drive
 uv run mountaincar render qlearning --episodes 3
 ```
+
+Run the recorded experiment for both agents:
+
+```bash
+uv run python scripts/run_experiments.py
+```
+
+This writes per-episode CSV files, an evaluation summary and an SVG chart to
+`results/`.
 
 ## Agents
 

@@ -11,6 +11,7 @@ Key components:
 """
 import random
 from collections import deque
+from copy import deepcopy
 from pathlib import Path
 from typing import Self
 
@@ -40,10 +41,16 @@ class QNetwork(nn.Module):
 
     def __init__(self, state_dim: int, action_dim: int, hidden: int = 128) -> None:
         super().__init__()
-        raise NotImplementedError("EXERCISE 2a: build the Q-network")
+        self.layers = nn.Sequential(
+            nn.Linear(state_dim, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+            nn.Linear(hidden, action_dim),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError("EXERCISE 2a: implement forward()")
+        return self.layers(x)
 
 
 # ── Replay buffer ────────────────────────────────────────────────────
@@ -96,6 +103,7 @@ class DQNAgent:
         buffer_capacity: int = 100_000,
         target_update_freq: int = 10,
         hidden: int = 128,
+        exploration_hold_steps: int = 20,
     ) -> None:
         self.env_id = env_id
         self.lr = lr
@@ -107,7 +115,10 @@ class DQNAgent:
         self.buffer_capacity = buffer_capacity
         self.target_update_freq = target_update_freq
         self.hidden = hidden
+        self.exploration_hold_steps = exploration_hold_steps
         self.training_episodes = 0
+        self._exploration_action: int | None = None
+        self._exploration_steps_left = 0
 
         env = gym.make(env_id)
         self.state_dim = int(env.observation_space.shape[0])  # type: ignore[index]
@@ -146,8 +157,13 @@ class DQNAgent:
         from gentle to nearly-the-answer -- take only as many as you need. Try
         to diagnose it from your own measurements first.
         """
+        if not deterministic and self._exploration_steps_left > 0:
+            self._exploration_steps_left -= 1
+            return int(self._exploration_action)
         if not deterministic and random.random() < self.epsilon:
-            return random.randrange(self.action_dim)
+            self._exploration_action = random.randrange(self.action_dim)
+            self._exploration_steps_left = self.exploration_hold_steps - 1
+            return int(self._exploration_action)
         with torch.no_grad():
             t = torch.as_tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
             return int(self.q_net(t).argmax(dim=1).item())
@@ -197,16 +213,29 @@ class DQNAgent:
         #      Tip: zero_grad() -> backward() -> step(), in that order.
         #
         # Return the scalar loss value (.item()).
-        raise NotImplementedError("EXERCISE 2b: implement the DQN learning step")
+        current_q = self.q_net(states_t).gather(1, actions_t)
+        with torch.no_grad():
+            next_q = self.target_net(next_states_t).max(dim=1, keepdim=True).values
+            target_q = rewards_t + self.gamma * next_q * (1.0 - terminateds_t)
+
+        loss = self.loss_fn(current_q, target_q)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return float(loss.item())
 
     # ── training loop ─────────────────────────────────────────────────
 
     def train(self, total_episodes: int = 500, log_interval: int = 10) -> list[float]:
         env = gym.make(self.env_id)
         rewards_history: list[float] = []
+        best_moving_average = float("-inf")
+        best_state = None
 
         for episode in range(1, total_episodes + 1):
             obs, _ = env.reset()
+            self._exploration_action = None
+            self._exploration_steps_left = 0
             total_reward = 0.0
             done = False
 
@@ -228,6 +257,12 @@ class DQNAgent:
             self.training_episodes += 1
             rewards_history.append(total_reward)
 
+            if len(rewards_history) >= 100:
+                moving_average = float(np.mean(rewards_history[-100:]))
+                if moving_average > best_moving_average:
+                    best_moving_average = moving_average
+                    best_state = deepcopy(self.q_net.state_dict())
+
             if episode % self.target_update_freq == 0:
                 self.target_net.load_state_dict(self.q_net.state_dict())
 
@@ -240,6 +275,9 @@ class DQNAgent:
                     f"Buffer: {len(self.buffer)}"
                 )
 
+        if best_state is not None:
+            self.q_net.load_state_dict(best_state)
+            self.target_net.load_state_dict(best_state)
         env.close()
         return rewards_history
 
@@ -255,6 +293,7 @@ class DQNAgent:
         "buffer_capacity",
         "target_update_freq",
         "hidden",
+        "exploration_hold_steps",
     )
 
     def save(self, path: Path) -> None:
